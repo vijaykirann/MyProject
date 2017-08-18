@@ -1,0 +1,17 @@
+set footer false
+
+spool C:\Executable\ServermangerOutput.txt
+list servers show SBLSRVR_NAME,HOST_NAME, SV_DISP_STATE,SBLMGR_PID,START_TIME
+
+list comp show SV_NAME,CP_DISP_RUN_STATE,CC_NAME
+spool off
+exit
+
+
+
+
+
+
+
+
+

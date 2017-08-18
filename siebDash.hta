@@ -1,0 +1,1055 @@
+<HTML>
+<HEAD>
+<TITLE>Siebel Server Dashboard</TITLE>
+<HTA:APPLICATION 
+     id="objDashboard"
+     applicationname="IKnow Siebel Dashboard"
+     scroll="no"
+     singleinstance="yes"
+	 icon=".\imgs\siebel.ico"
+	 MaximizeButton="no"
+>
+<style type="text/css">
+table {font-family: Arial, "sans serif"; font-size: 12; border: 1px solid grey;}
+TD {padding: 3px;}
+body {font-family: Arial, "sans serif"; font-size: 12; background-color:#DC7093;}
+font.smallFont {font-family: Arial, "sans serif"; font-size: 10;}
+textarea {border-color: black; border-width: 1px; padding: 3px; font-family: Arial, "sans serif"; font-size: 11;}
+</style>
+</HEAD>
+<SCRIPT LANGUAGE="JScript">
+/*
+Version: 3.0
+For Debugging
+var pop = oWshShell.Popup(sRequest, 10, "Debug", 64);
+*/
+/*
+Setup all the ini file based arrays and load ActiveX objects
+*/
+var oWshShell = new ActiveXObject("WScript.Shell");
+var fso = new ActiveXObject("Scripting.FileSystemObject");
+var WshEnv = oWshShell.Environment("Process");
+var aServerNames = new Array();
+var aSiebelServiceName = new Array();
+var aServerClustered = new Array();
+var aServerUsage = new Array();
+var aSRFDestination = new Array();
+var aSRFSource = new Array();
+var aSiebelServerBin = new Array();
+var aGenBScriptTarget = new Array();
+var aToolsConfig = new Array();
+/*
+Set window size and move to center of screen.
+*/
+onload=function(){
+	window.resizeTo(650, 550);
+	window.moveTo ((screen.width/2)-275, (screen.height/2)-250);
+	resetControls();
+}
+/*
+Triggers all the actions required when a new environment is selected
+reset arrays, read INI, reset action dropdown, show server status.
+*/
+function switchEnv(){
+	DataArea.innerHTML="Connecting...";
+	var env = envDropDown.value;
+	if (env!="0"){
+		//Load Servers from TextFile		
+		aServerNames = new Array();
+		aSiebelServiceName = new Array();
+		aServerClustered = new Array();
+		aServerUsage = new Array();		
+		aSRFDestination = new Array();
+		aSRFSource = new Array();
+		aSiebelServerBin = new Array();
+		aGenBScriptTarget = new Array();
+		aToolsConfig = new Array();
+		readIni(env);
+		actionDropDown.value = "Services";
+		changeAction();
+		actionDropDown.disabled = false;
+		displayServers();
+//		createEditButton();
+	}else{
+		resetControls();
+	}
+}
+/*
+Resets the HTA controls when no environment selected
+*/
+function resetControls(){
+	createDropDown();
+	var controlHTML = "<B>Service Control</B><br/>"
+	controlHTML += "<INPUT id=startServers class=\"button\" type=\"button\" value=\"Start All\" name=\"startAll_button\" disabled=\"true\">";
+	controlHTML += "<INPUT id=stopServers class=\"button\" type=\"button\" value=\"Stop All\" name=\"stopAll_button\" disabled=\"true\">"
+	controlHTML += "<INPUT id=refresh class=\"button\" type=\"button\" value=\"Refresh\" name=\"refresh\" disabled=\"true\">"
+//	controlHTML += "&nbsp;<INPUT id=restart class=\"button\" type=\"button\" value=\"Restart All\" name=\"restart\" disabled=\"true\">"
+	ControlArea.innerHTML = controlHTML;
+	editConfig.innerHTML = "";
+	DataArea.innerHTML="Select an environment.";
+	ErrorTextArea.value = "";
+	actionDropDown.disabled = true;
+}
+/*
+Creates the Environments dropdown based on ini files in the same directory
+*/
+function createDropDown(){
+	var aFilesItems = readFilesInFolder(fso.GetAbsolutePathName("."));
+	dropDownHTML = "<select size=\"1\" name=\"envDropDown\" onChange=\"switchEnv()\">";
+	dropDownHTML += "<option value=\"0\"></option>";
+	for (i=0;i<aFilesItems.length;i++) {
+		if (aFilesItems[i].Extension == "ini"){
+			sEnv = aFilesItems[i].FileName;
+			dropDownHTML += "<option value=\""+sEnv+"\">"+sEnv+"</option>";
+		}
+	}
+	dropDownHTML += "</select>";
+	EnvDropDown.innerHTML = dropDownHTML;
+}
+/*
+Changes the action buttons displayed when action dropdown changes
+*/
+function changeAction(){
+	var controlHTML = "";
+	var sAction = actionDropDown.value;
+	switch	(sAction){
+	case "Services":		
+		controlHTML = "<B>Service Control</B><br/>"
+		controlHTML += "<INPUT id=stopServers class=\"button\" type=\"button\" value=\"Stop All\" name=\"stopAll_button\"  onClick=\"allServersStop('stop')\">&nbsp&nbsp";
+		controlHTML += "<INPUT id=startServers class=\"button\" type=\"button\" value=\"Start All\" name=\"startAll_button\"  onClick=\"allServersStart('start')\">&nbsp&nbsp";
+		controlHTML += "<INPUT id=refresh class=\"button\" type=\"button\" value=\"Refresh\" name=\"refresh\"  onClick=\"displayServers()\">&nbsp&nbsp";
+		controlHTML +=  "<INPUT id=startServers class=\"button\" type=\"button\" value=\"Check SHM\" name=\"checkSHM_button\"  onClick=\"checkSHM()\">&nbsp&nbsp";
+		controlHTML +=  "<INPUT id=startServers class=\"button\" type=\"button\" value=\"Delete SHM\" name=\"deleteSHM_button\"  onClick=\"checkSHM()\">&nbsp&nbsp";
+//		controlHTML += "&nbsp;<INPUT id=restart class=\"button\" type=\"button\" value=\"Restart All\" name=\"restart\"  onClick=\"restartServers()\">";
+	break;
+/* SRF Removed
+	case "SRF":
+		if (aToolsConfig.length>0){
+			controlHTML += "<b>SRF Compile</b><br/>";
+			controlHTML += "<table><tr><td>";
+			controlHTML += "<b>Compile SRF Only</b>&nbsp;<INPUT id=compileSRF class=\"button\" type=\"button\" value=\"Compile\" name=\"compileSRF_button\" onClick=\"compileSRF()\"><br/>";
+			controlHTML += "<b>Compile & Replace SRF</b> on Servers&nbsp;<INPUT id=compileRSRF class=\"button\" type=\"button\" value=\"Compile\" name=\"compileRSRF_button\"  onClick=\"compileSRF('andReplace')\">";
+			controlHTML += "</td></tr></table><br/>";
+		}
+		controlHTML += "<B>SRF Copy</B><br/>"
+		controlHTML += "<table><tr><td>";
+		if (aSRFSource.length>0){
+			controlHTML += "<b>Copy SRF from DEV</b>&nbsp;<INPUT id=pullSRF class=\"button\" type=\"button\" value=\"Copy\" name=\"pullSRF_button\"  onClick=\"pullSRF()\"><br/>";
+		}
+		controlHTML += "<b>Copy SRF </b>to "+envDropDown.value+" Server(s)&nbsp;<INPUT id=copySRF class=\"button\" type=\"button\" value=\"Copy\" name=\"copySRF_button\"  onClick=\"copySRF()\"><br/>";
+		controlHTML += "<b>Generate Browser Scripts </b>in "+envDropDown.value+" Web Server&nbsp;<INPUT id=copySRF class=\"button\" type=\"button\" value=\"Generate\" name=\"genBScripts_button\"  onClick=\"genBScripts()\">";
+		controlHTML += "</td></tr></table>";
+	break;
+*/	
+	case "Repository":
+		controlHTML="";
+	break;	
+	case "CheckDisk":	
+		controlHTML = "<B>Disk Usage Function</B><br/>"
+		controlHTML +=  "<INPUT id=startServers class=\"button\" type=\"button\" value=\"Check Disk\" name=\"startAll_button\"  onClick=\"CheckDrivesHTML()\">";
+	break;
+	case "SHMDMP":	
+		controlHTML = "<B> Check .SHM and .DMP files On Server</B><br/> <br><br>"
+		//controlHTML +=  "<INPUT id=startServers class=\"button\" type=\"button\" value=\"Check SHM\" name=\"checkSHM_button\"  onClick=\"checkSHM()\"> <br><br>";
+		controlHTML +=  "<INPUT id=startServers class=\"button\" type=\"button\" value=\"Check DMP\" name=\"checkDMP_button\"  onClick=\"checkDMP()\"> &nbsp";
+		controlHTML +=  "<INPUT id=startServers class=\"button\" type=\"button\" value=\"Delete DMP\" name=\"deleteDMP_button\"  onClick=\"deleteDMP()\"> <br>";
+	break;	
+	case "HealthCheck":	
+		alert('Please Generate Server Manager Output before runnig the Health Check')
+		controlHTML = "<B> Perform Health Check of application</B><br/> <br><br>"
+		controlHTML +=  "<INPUT id=GnrtSrvrmgrOutput class=\"button\" type=\"button\" value=\"Generate SrvrMgr File \" name=\"deleteDMP_button\"  onClick=\"generateServerMgrOutput()\"> &nbsp";
+		controlHTML +=  "<INPUT id=HealthChck class=\"button\" type=\"button\" value=\"Health Check\" name=\"Health_button\"  onClick=\"HealthCheck()\"> &nbsp";
+		
+	break;	
+	}
+	ControlArea.innerHTML = controlHTML;
+}
+function createEditButton(){
+	var exitConfigHTML = "<table align=\"right\"><tr>";
+	exitConfigHTML += "<td style=\"padding:1px;vertical-align:middle\"><font class=\"smallFont\"><a href=\"#\" onClick=editConfigFile()>Edit Config File</a></font></td>";
+	exitConfigHTML += "<td><IMG SRC=\".\\imgs\\WhitePageEdit.png\" ALT=\"Edit Config File\" onClick=editConfigFile()></td>";
+	exitConfigHTML += "</tr></table>";
+	editConfig.innerHTML = exitConfigHTML;
+}
+/*
+Call server display functions and creates HTML for the status text/images.
+*/
+function displayServers(){	
+	var i, imgHTML;
+	var aSrvcStatus = new Array();
+	DataArea.innerHTML="";
+	for (i=0;i<aServerNames.length;i++){		
+		if (checkServerUp(aServerNames[i])[0]){
+			if(aServerClustered[i] == "true"){
+				aSrvcStatus[i] = accessClusteredService(aServerNames[i], aSiebelServiceName[i], "status");
+			} else {
+				aSrvcStatus[i] = accessService(aServerNames[i], aSiebelServiceName[i], "status");
+			}
+			if (aSrvcStatus[i][0] == "Running" || aSrvcStatus[i][0] == "Online"){
+				imgHTML = " <IMG SRC=\".\\imgs\\greenLight.PNG\" ALT=\"Service Running\"></br>";
+			} else if (aSrvcStatus[i][0] == "Stopped"|| aSrvcStatus[i][0] == "Offline") {
+				imgHTML = " <IMG SRC=\".\\imgs\\redLight.PNG\" ALT=\"Service Stopped\"></br>";
+			} else {
+				imgHTML = " <IMG SRC=\".\\imgs\\yellowLight.PNG\" ALT=\"In Progress\"></br>";
+			}
+			DataArea.innerHTML+="<B>"+aServerUsage[i]+"</B> "+aServerNames[i]+" Status:"+aSrvcStatus[i][0]+imgHTML;
+		} else {
+			aSrvcStatus[i] = checkServerUp(aServerNames[i]);
+			ErrorTextArea.value += aSrvcStatus[i][1]+" \n";
+			imgHTML = " <IMG SRC=\".\\imgs\\serverError.png\" ALT=\"Server Down!\"></br>";
+			DataArea.innerHTML+="<B>"+aServerUsage[i]+"</B> "+aServerNames[i]+" Status: Server Down! "+imgHTML;
+		}
+	}
+}
+/*
+Function starts or stops all services in the environment
+*/
+function allServers(sRequest){
+	var sRequest, i;
+	var aSrvcStatus = new Array();
+	for (i=0;i<aServerNames.length;i++){
+		if (checkServerUp(aServerNames[i])[0]){
+			if(aServerClustered[i] == "true"){
+				aSrvcStatus[i] = accessClusteredService(aServerNames[i], aSiebelServiceName[i], sRequest);
+				//added sleep 20 sec
+				oWshShell.Run("wscript.exe sleep.js 10000",0,true);
+				displayServers();
+			}else{
+				aSrvcStatus[i] = accessService(aServerNames[i], aSiebelServiceName[i], sRequest);			
+				// added sleep 20 sec 
+				oWshShell.Run("wscript.exe sleep.js 10000",0,true);
+				displayServers();
+			}
+			ErrorTextArea.value += sRequest+" "+aServerNames[i]+" - "+aSrvcStatus[i][1]+"\n";
+		}
+	}
+	ErrorTextArea.value += "...\n";
+	displayServers();
+}
+
+/*
+To account for diffrent time delay while 
+stoping and starting Siebel will clone the allServers function
+to allServersStop and allServersStart
+*/
+
+function allServersStop(sRequest){
+	var sRequest, i;
+	var aSrvcStatus = new Array();
+	alert("Please note There is a 30 Secs interval between 2 services")
+	ErrorTextArea.value += "Stopping Services \n Please Wait...\n"
+	for (i=0;i<aServerNames.length;i++){
+		if (checkServerUp(aServerNames[i])[0]){
+			if(aServerClustered[i] == "true"){
+				aSrvcStatus[i] = accessClusteredService(aServerNames[i], aSiebelServiceName[i], sRequest);
+				//sleep 30 sec
+				displayServers();
+			}else{
+				aSrvcStatus[i] = accessService(aServerNames[i], aSiebelServiceName[i], sRequest);			
+				displayServers();
+				//oWshShell.Run("wscript.exe sleep.js 30000",0,true);
+				
+			}
+			ErrorTextArea.value += sRequest+" "+aServerNames[i]+" - "+aSrvcStatus[i][1]+"\n";
+			//sleep 30 sec
+			oWshShell.Run("wscript.exe sleep.js 30000",0,true);
+		}
+	}
+	ErrorTextArea.value += "Services Stopped Check Status in Dashboard...\n";
+	displayServers();
+}
+
+//Start Servers
+
+function allServersStart(sRequest){
+	var sRequest, i;
+	var aSrvcStatus = new Array();
+	alert("Please note There is a 120 Secs interval between 2 services")
+	ErrorTextArea.value += "Starting Services  \n Please Wait...\n"
+	for (i=0;i<aServerNames.length;i++){
+		if (checkServerUp(aServerNames[i])[0]){
+			if(aServerClustered[i] == "true"){
+				aSrvcStatus[i] = accessClusteredService(aServerNames[i], aSiebelServiceName[i], sRequest);
+			
+			}else{
+				aSrvcStatus[i] = accessService(aServerNames[i], aSiebelServiceName[i], sRequest);			
+				//displayServers();
+				//sleep 120 sec				
+				//oWshShell.Run("wscript.exe sleep.js 120000",0,true);
+				
+			}
+			ErrorTextArea.value += sRequest+" "+aServerNames[i]+" - "+aSrvcStatus[i][1]+"\n";
+			//sleep 120 sec
+			oWshShell.Run("wscript.exe sleep.js 120000",0,true);
+			displayServers();
+		}
+	}
+	ErrorTextArea.value += "Services Started Check Status in Dashboard...\n";
+	displayServers();
+}
+
+
+
+
+/*
+Calls the copy function to copy the SRF
+also calls genBScripts
+*/
+function copySRF(){
+	var sLocalSRFPath = fso.GetAbsolutePathName("..");
+	var aSiebelSRF = new Array("siebel_sia.srf");
+	copyFiles(sLocalSRFPath,aSRFDestination,aSiebelSRF);
+	var pop = oWshShell.Popup(sLocalSRFPath+" "+aSRFDestination[0], 10, "Debug", 64);
+	genBScripts();
+}
+/*
+Grabs the SRF from a defined location
+*/
+function pullSRF(){
+	var aSiebelSRF = new Array("siebel_sia.srf");
+	var aLocalDest = new Array(fso.GetAbsolutePathName(".."));
+	copyFiles(aSRFSource[0],aLocalDest,aSiebelSRF);
+}
+/*
+Copy file or files to all locations
+Also calls validate to check the file transfer
+*/
+function copyFiles(sSource, aDest, aFiles){
+	var i,j;
+	var sSource, aDest, aFiles;
+	var sCopyOK = new String();
+	var fileErrors = 0;
+	if (aFiles.length <= 1){
+		DataArea.innerHTML="<p><b>Source</b>- "+sSource+"\\"+aFiles[0]+"</p>";
+	}else{
+		DataArea.innerHTML="<p><b>Source</b>- "+sSource+" ("+aFiles.length+" Files)</p>";
+	}
+	for (i=0;i<aDest.length;i++){
+		for (j=0;j<aFiles.length;j++){
+			fso.CopyFile(sSource+"\\"+aFiles[j],aDest[i]+"\\"+aFiles[j]);
+			sCopyOK = compareFiles(sSource+"\\"+aFiles[j],aDest[i]+"\\"+aFiles[j])
+			if (sCopyOK){
+				imgHTML = "Copy Ok. <IMG SRC=\".\\imgs\\greenLight.PNG\" ALT=\"File Verified\"></br>";
+			}else{
+				imgHTML = "Verify Failed! <IMG SRC=\".\\imgs\\redLight.PNG\" ALT=\"SRF mismatch\"></br>";
+			}
+		}
+		if (aFiles.length <= 1){
+			DataArea.innerHTML+="<B>"+aDest[i]+"\\"+aFiles[0]+"</B> "+imgHTML;
+		} else {
+			DataArea.innerHTML+="<B>"+aDest[i]+" ("+aFiles.length+" Files)</B> "+imgHTML;
+		}
+	}
+}
+/*
+Compare two files based on date and return match/no match.
+*/
+function compareFiles(sFileOne, sFileTwo){
+	var sFileOne, sFileTwo, sCopy;
+	var oFileOne = fso.GetFile(sFileOne);
+	var oFileTwo = fso.GetFile(sFileTwo);
+	var dFileOne = new Date(oFileOne.DateLastModified).getTime();
+	var dFileTwo = new Date(oFileTwo.DateLastModified).getTime();
+	 if (dFileOne == dFileTwo){
+		sCopy = true;
+	}else{
+		sCopy = false;
+	}
+	return sCopy;
+}
+/*
+Runs the command to generate Siebel browser scripts.
+Also reports the result to the error textbox.
+*/
+function genBScripts(){
+	var i;
+	var s = new String();
+	for (i=0;i<aGenBScriptTarget.length;i++){
+		var oExec = oWshShell.Exec("\""+aSiebelServerBin[0]+"\\genbscript.exe\" \""+aSiebelServerBin[0]+"\\ENU\\siebel.cfg\" \""+aGenBScriptTarget[i]+"\" ENU");
+		var genOut = oExec.StdOut;
+		while (!genOut.AtEndOfStream){
+			s += genOut.ReadLine();
+			s += "\n";
+		}
+		ErrorTextArea.value += s;
+	}
+}
+/*
+
+*/
+function compileSRF(sAndReplace){
+	var s = new String();
+	var sAndReplace = new String(sAndReplace);
+	var sToolsPath = aToolsConfig[0];
+	var sToolsCFG = aToolsConfig[1];
+	var sTUser = aToolsConfig[2];
+	var sTPass = aToolsConfig[3];
+	var sSRFPath = aToolsConfig[4];
+	var sTheDate = isoDate();
+	var sCompileCMD = sToolsPath+"\\siebdev.exe /c "+sToolsPath+"\\"+sToolsCFG+" /d ServerDataSrc /u "+sTUser+" /p "+sTPass+" /BC \"Siebel Repository\" "+sSRFPath+"\\siebel_sia_"+sTheDate+".srf /TL ENU";
+	//compile
+	var oExec = oWshShell.Exec(sCompileCMD);
+	var genOut = oExec.StdOut;
+	while (!genOut.AtEndOfStream){
+		var pop = oWshShell.Popup(genOut.ReadLine(), 10, "Tools Compile", 48);
+	}
+	ErrorTextArea.value += envDropDown.value+" SRF compile complete\n";
+	var aLocalDest = new Array(fso.GetAbsolutePathName(".."));
+	var aSiebelSRF = new Array("siebel_sia_"+sTheDate+".srf");
+	//copy
+	copyFiles(sSRFPath, aLocalDest, aSiebelSRF);
+	//delete
+	if (fso.FileExists("..\\siebel_sia.srf")){
+		fso.DeleteFile("..\\siebel_sia.srf", true);
+	}
+	//rename
+	var f = fso.GetFile("..\\siebel_sia_"+sTheDate+".srf");
+	f.Name = "siebel_sia.srf";
+	if (sAndReplace == "andReplace"){
+		stopServersAndWait();
+		copySRF();
+		allServers("start");
+		ErrorTextArea.value += "The Server has been updated with the new SRF!\n";
+	} else {
+		ErrorTextArea.value += "The Server SRF has NOT been updated!\n";
+		ErrorTextArea.value += "The new compiled SRF path = "+fso.GetAbsolutePathName("..\\siebel_sia.srf \n");
+	}
+}
+/*
+Returns the date in a basic ISO format i.e. 20090529
+*/
+function isoDate(){
+	var d = new Date();
+	var sMonth = new String(d.getMonth()+1);
+	var sDate = new String(d.getDate());
+	if (sMonth.length == 1){sMonth = "0"+sMonth;}
+	if (sDate.length == 1){	sDate = "0"+sDate;}
+	var sIsoDate = d.getYear()+""+sMonth+sDate;
+	return(sIsoDate)
+}
+function restartServers(){
+	stopServersAndWait();
+	allServers("start");
+}
+/*
+Stops all Siebel servers and waits until all servers are down
+*/
+function stopServersAndWait(){
+	var i,j;
+	var aSrvcStatus = new Array();
+	var bServersRunning = true;
+	var iServersRunning;
+	allServers("stop");
+	ErrorTextArea.value += "Waiting for all servers to stop..";
+	while(bServersRunning){
+		iServersRunning = 0;
+		for (i=0;i<aServerNames.length;i++){		
+			if (checkServerUp(aServerNames[i])[0]){
+				if(aServerClustered[i] == "true"){
+					aSrvcStatus[i] = accessClusteredService(aServerNames[i], aSiebelServiceName[i], "status");
+				} else {
+					aSrvcStatus[i] = accessService(aServerNames[i], aSiebelServiceName[i], "status");
+				}
+				if (aSrvcStatus[i][0] == "Stop Pending" || aSrvcStatus[i][0] == "Offline Pending" || aSrvcStatus[i][0] == "Pending"){
+					iServersRunning++
+				}
+			}
+		}
+		if (iServersRunning != 0){
+			//sleep 5 sec
+			oWshShell.Run("wscript.exe sleep.js 3000",0,true);
+			ErrorTextArea.value += ".."
+		} else {
+			bServersRunning = false;
+			ErrorTextArea.value += "\n"
+		}
+	}
+}
+/*
+This function sends a ping from the current server to the target server
+and then returns an array. Array position 0 = true (server up) OR false (server down)
+Array position 1 = Error message.
+*/
+function checkServerUp(sServer){
+	var sServer;
+	var aResults = new Array(false, "");
+	//Only common error codes included.
+	var aErrorCode = new Array(11003, 11010, 11050, 11018);
+	var aErrorType = new Array("Destination Host Unreachable", "Request Timed Out", "General Failure", "Bad Destination");
+	var objWMIService = GetObject("winmgmts:\\\\.\\root\\CIMV2");
+	var colPings = objWMIService.ExecQuery("Select * From Win32_PingStatus where Address = '"+sServer+"'")
+	var enumItems = new Enumerator(colPings);
+	for (; !enumItems.atEnd(); enumItems.moveNext()) {
+		var objItem = enumItems.item();
+		if ((objItem.StatusCode == "null") || objItem.StatusCode!=0){
+			for (i=0;i<aErrorCode.length;i++){
+				if (objItem.StatusCode == aErrorCode[i]){
+					aResults[1] = aErrorType[i];
+				}
+			}
+			aResults[0] = false;
+		}else{
+			aResults[0] = true;
+		}
+	}
+	return aResults;
+}
+/*Usage for Access Service Function.
+var aInfo = accessService("appau227dev184.appdev.corptst.anz.com", "Schedule", "[status][start][stop]");
+Function that can be called to start/stop a service and get status. 
+Service Status and error state are also returned in a two item array.
+*/
+function accessService(sServer, sService, sRequest){
+	var sServer, sService, sRequest, i;
+	var wbemFlagReturnImmediately = 0x10; var wbemFlagForwardOnly = 0x20;
+	var aServiceErrorMsg = new Array("Success", "Not Supported", "Access Denied", "Dependent Services Running", "Invalid Service Control", "Service Cannot Accept Control", "Service Not Active", "Service Request Timeout", "Unknown Failure", "Path Not Found", "Service Already Running", "Service Database Locked", "Service Dependency Deleted", "Service Dependency Failure", "Service Disabled", "Service Logon Failure", "Service Marked For Deletion", "Service No Thread", "Status Circular Dependency", "Status Duplicate Name", "Status Invalid Name", "Status Invalid Parameter", "Status Invalid Service Account", "Status Service Exists", "Service Already Paused");
+	var objWMIService = GetObject("winmgmts:\\\\"+sServer+"\\root\\CIMV2");
+	var colItems = objWMIService.ExecQuery("SELECT * FROM Win32_Service where Name='"+sService+"'", "WQL", wbemFlagReturnImmediately | wbemFlagForwardOnly);
+	var enumItems = new Enumerator(colItems);
+	var aServiceInfo = new Array("","");
+	for (; !enumItems.atEnd(); enumItems.moveNext()) {
+		var objItem = enumItems.item();
+		if (objItem.Name == sService) {
+			if (sRequest == "start"){
+				aServiceInfo[1] = objItem.StartService();
+			} else if (sRequest == "stop"){
+				aServiceInfo[1] = objItem.StopService();
+			}
+			aServiceInfo[0] = objItem.State;
+		}
+	}
+	for (i=0;i<aServiceErrorMsg.length;i++){
+		if (aServiceInfo[1] == i){			
+			aServiceInfo[1] = aServiceErrorMsg[i];
+		}
+	}
+	return(aServiceInfo);
+}
+/*
+Same as above but for clustered services.
+*/
+function accessClusteredService(sServer, sService, sRequest){
+	var sServer, sService, sRequest, sStatusNumber, i;
+	var wbemFlagReturnImmediately = 0x10; var wbemFlagForwardOnly = 0x20;
+	var aStatusMsg = new Array("-1","StateUnknown","0","StateUnknown","1","Initializing","2","Online","3","Offline","4","Failed","128","Pending","129","Online Pending","130","Offline Pending");
+	var objWMIService = GetObject("winmgmts:\\\\"+sServer+"\\root\\MSCluster");
+	var colItems = objWMIService.ExecQuery("SELECT * FROM MSCluster_Resource where Name='"+sService+"'", "WQL", wbemFlagReturnImmediately | wbemFlagForwardOnly);
+	var enumItems = new Enumerator(colItems);
+	for (; !enumItems.atEnd(); enumItems.moveNext()) {
+		var objItem = enumItems.item();
+		if (sRequest == "start"){
+			try{objItem.BringOnline();}
+			catch(e){}//ignore
+		} else if (sRequest == "stop"){
+			try{objItem.TakeOffline;}
+			catch(e){}//ignore
+		}
+		sStatusNumber = objItem.State;
+	}
+	for (i=0;i<aStatusMsg.length;i++){
+		if (aStatusMsg[i] == sStatusNumber){
+			i++
+			var aServiceInfo = new Array(aStatusMsg[i]);
+			aServiceInfo[1] = "Cluster command sent"
+		}
+	}
+	return(aServiceInfo);
+}
+/*
+Takes a folder path and returns an array of file items from WMI query.
+*/
+function readFilesInFolder(sfolderPath){	
+	var aItems = new Array();
+	var objWMIService = GetObject("winmgmts:\\\\.\\root\\cimv2");
+	var colFiles = objWMIService.ExecQuery("ASSOCIATORS OF {Win32_Directory.Name='"+sfolderPath+"'} Where ResultClass = CIM_DataFile");
+	var enumItems = new Enumerator(colFiles);
+	for (; !enumItems.atEnd(); enumItems.moveNext()) {
+		aItems[aItems.length] = enumItems.item();
+	}
+	return aItems;
+}
+/*
+
+*/
+function editConfigFile(){
+	var env = envDropDown.value
+	openTextFile(env+".ini");
+}
+/*
+
+*/
+function openTextFile(theFile){
+	var theFile;
+	theFile = fso.GetAbsolutePathName(theFile);
+	var oExec = oWshShell.Exec("notepad.exe "+theFile);
+}
+/*
+Function to read INIs that are correctly formatted.
+New case statment for each data type to read is required
+Not all data sections need to be in the file
+Infomation is stored as a series of arrays
+*/
+function readIni(fileName){
+	var ForReading, fs, fileText, s, e, fileName, runDirectory, sSection
+	ForReading = 1;
+	s="";
+	fs = new ActiveXObject("Scripting.FileSystemObject");
+	//added some extra checking for execute via "runas".
+	var system32Path = WshEnv("SystemRoot")+"\\system32";
+	if (oWshShell.CurrentDirectory == system32Path){
+		runDirectory = "D:\\Scripts\\dash\\";		
+	}else{
+		runDirectory = ".\\";
+	}
+	try{fileText = fs.OpenTextFile(runDirectory+fileName+".ini", ForReading, false);}
+	catch(e){var pop = oWshShell.Popup("File \""+fileName+".ini\" not found.", 10, "Error", 16);
+		var errorCheck = true;};
+	if (!errorCheck){
+		while (!fileText.AtEndOfStream){
+			sSection = fileText.ReadLine();
+			s = fileText.ReadLine();
+			switch (sSection){
+			case "[ServerNames]":
+				while (s){				
+					aServerNames[aServerNames.length] = s;
+					s = fileText.ReadLine();
+				}
+				break;
+			case "[ServiceName]":
+				while (s){
+					aSiebelServiceName[aSiebelServiceName.length] = s;
+					s = fileText.ReadLine();
+				}
+				break;
+			case "[Clustered]":
+				while (s){
+					aServerClustered[aServerClustered.length] = s;
+					s = fileText.ReadLine();
+				}
+				break;
+			case "[ServerUsage]":
+				while (s){
+					aServerUsage[aServerUsage.length] = s;
+					try{s = fileText.ReadLine();}
+					catch(e){s=false};
+				}
+				break;
+			case "[SRFSource]":
+				while (s){
+					aSRFSource[aSRFSource.length] = s;
+					try{s = fileText.ReadLine();}
+					catch(e){s=false};
+				}
+			case "[SRFDestination]":
+				while (s){
+					aSRFDestination[aSRFDestination.length] = s;
+					try{s = fileText.ReadLine();}
+					catch(e){s=false};
+				}
+				break;
+			case "[SiebelServerBin]":
+				while (s){
+					aSiebelServerBin[aSiebelServerBin.length] = s;
+					try{s = fileText.ReadLine();}
+					catch(e){s=false};
+				}
+				break;
+			case "[GenBScriptTarget]":
+				while (s){
+					aGenBScriptTarget[aGenBScriptTarget.length] = s;
+					try{s = fileText.ReadLine();}
+					catch(e){s=false};
+				}
+				break;
+			case "[ToolsPath-CFG-User-Password-SRFPath]":
+				while (s){
+					aToolsConfig[aToolsConfig.length] = s;
+					try{s = fileText.ReadLine();}
+					catch(e){s=false};
+				}
+				break;
+			}
+		}
+		fileText.Close();
+	}
+}
+
+
+
+</SCRIPT>
+<script language="vbscript">
+
+'Global Varibales for healthCheck
+Dim Text, title
+Dim fso, objArgs                ' Object variables
+Dim txtStream                   ' Text stream
+Dim file                        ' Filename
+ErrFlag = 0              'Flag to track the error 
+PathS =  "ServermangerOutput.txt"  			 'Path to Server Manger Output file
+PathH =  "HealthCheck.html"  				 'Health Check File Path
+PathI =  "IntermediateFile.html" 			 'Intermediate File
+webServer1 = "http://204.9.71.36/fins_enu/start.swe" 'Website to check
+webServer2 =  "http://204.9.71.38/fins_enu/start.swe" 'Website to check
+webServer3 = "http://10.44.145.47/fins_enu/start.swe" 'Website to check
+TimeStamp = Now()
+PathSMB = "GenerateServerMangerOutput.bat"
+'Disk Space Usage 
+
+
+Sub CheckDrivesHTML()
+
+	dim write
+	Dim myFSO, WriteStuff, dateStamp
+	dateStamp = Now()
+	'toDay = (Right("0" & Day(Date), 2)) & "_" & Right("0" & Month(Date), 2) & "_" & Right(Year(Date), 2) & Hour(Now()) & Minute(Now()) & Second(Now())'
+	'Filename = "DiskUsage_" & toDay &".htm"
+	Filename = "DiskUsage.htm"
+	'ystDay = (Right("0" & Day(Date), 2) - 1) & "_" & Right("0" & Month(Date), 2) & "_" & Right(Year(Date), 2) & Hour(Now()) & Minute(Now()) & Second(Now())
+	DeleteFile(Filename)
+	Set filesys = CreateObject("Scripting.FileSystemObject")
+	write = "<HTML> <b>The Disk Check excecuted at Time   "& dateStamp
+	Set myFSO = CreateObject("Scripting.FileSystemObject")
+	Set WriteStuff = myFSO.OpenTextFile(Filename, 8, True)
+	WriteStuff.WriteLine(write)  
+	WriteStuff.WriteLine (dateStamp)
+	write = "</b><br> <table border=1> <tr> <th> Server Name </th> <th>Drive</th> <th> FreeSpace(GB)</th> <th> Free Space % </th> "
+	WriteStuff.WriteLine(write)
+
+	For Each strComputer In aServerNames
+		Set objWMIService = GetObject("winmgmts:\\" & strComputer & "\root\cimv2")
+		Set colDiskDrives = objWMIService.ExecQuery _
+	        ("Select * from Win32_PerfFormattedData_PerfDisk_LogicalDisk Where " _
+	         & "Name <> '_Total'")
+    
+    		For Each objDiskDrive In colDiskDrives
+    
+    			If (objDiskDrive.PercentFreeSpace < 25 And objDiskDrive.PercentFreeSpace > 0) Then
+				    write = "<tr> <td> " & strComputer & "</td> <td>" & objDiskDrive.Name & "</td> <td>" & objDiskDrive.FreeMegabytes/1024 & "</td> <td bgcolor= RED >" & objDiskDrive.PercentFreeSpace & "</td></tr>"
+				    ErrFlag = 1
+				Else
+				    write = "<tr> <td> " & strComputer & "</td> <td>" & objDiskDrive.Name & "</td> <td>" & objDiskDrive.FreeMegabytes/1024 & "</td> <td>" & objDiskDrive.PercentFreeSpace & "</td></tr>"
+				End If
+				WriteStuff.WriteLine(write)
+            Next
+	Next
+	write = "</table> </HTML>"
+	WriteStuff.WriteLine(write)
+
+'Open the HTML File In default Application
+
+	Dim wshShell
+	Set wshShell = CreateObject("WScript.Shell")
+	wshShell.Run Filename
+
+'Dispay in MSG box	
+	ErrorTextArea.value = ErrorTextArea.value + "The Disk Utilization will open in new Window"
+	ErrorTextArea.value = ErrorTextArea.value + vbNewLine
+
+'Dealocate the variables
+	write = null
+	WriteStuff.Close
+	Set WriteStuff = Nothing
+	Set myFSO = Nothing
+
+End Sub
+
+'Disk Space Usage 
+
+'Check SHM
+Sub checkSHM
+
+	For Each Server in aServerNames
+	
+		Set objWMIService = GetObject _
+	    				("winmgmts:" & "!\\" & Server & "\root\cimv2")
+		Set colFiles = objWMIService.ExecQuery("Select * from CIM_DataFile where Path = '\\sba81_PRD\\siebsrvr\\ADMIN\\' and Extension='shm' and Drive = 'D:'")
+		For Each objFile in colFiles
+	    	ErrorTextArea.value = ErrorTextArea.value + objFile.Name & " On Server " & Server + vbNewLine
+	     	Set colFiles = Nothing
+			Set objWMIService = Nothing
+		Next
+	Next
+	
+	ErrorTextArea.value = ErrorTextArea.value + "Finished" +vbNewLine
+	Set server = Nothing
+
+End Sub
+
+'Function to check dmp files 
+
+Sub checkDMP
+
+	For Each Server in aServerNames
+		Set objWMIService = GetObject _
+	    ("winmgmts:" & "!\\" & Server & "\root\cimv2")
+		Set colFiles = objWMIService.ExecQuery("Select * from CIM_DataFile where Path = '\\dump\\' and Extension='dmp' and Drive = 'D:'")
+			For Each objFile in colFiles
+	    		'Wscript.Echo objFile.Name & " On Server " & Server
+	    		ErrorTextArea.value = ErrorTextArea.value + objFile.Name & " On Server " & Server + vbNewLine
+	     		Set colFiles = Nothing
+				Set objWMIService = Nothing
+			Next
+	Next
+	
+	ErrorTextArea.value = ErrorTextArea.value + "Finished Checking DMP"+ vbNewLine 
+	Set server = Nothing
+End Sub
+
+'Function to Delete .DMP files
+
+Sub deleteDMP
+	
+	For Each Server in arrServers
+		Set objWMIService = GetObject _
+	    	("winmgmts:" & "!\\" & Server & "\root\cimv2")
+		Set colFiles = objWMIService.ExecQuery("Select * from CIM_DataFile where Path = '\\Dump\\' and Extension='dmp' and Drive = 'D:'")
+			For Each objFile in colFiles
+	    		ErrorTextArea.value = ErrorTextArea.value + objFile.Name & " On Server " & Server
+				objFile.Delete
+				Set colFiles = Nothing
+				Set objWMIService = Nothing
+			Next
+	Next
+	
+	ErrorTextArea.value = ErrorTextArea.value + "Finished Deleating DMP"+ vbNewLine 
+	Set objDateToUtcDate = Nothing
+End Sub	
+
+
+Sub DeleteFile(Path)
+
+	Set filesys = CreateObject("Scripting.FileSystemObject")
+    If filesys.FileExists(Path) Then
+        filesys.DeleteFile Path
+    End If
+ 
+End Sub
+
+'Health Check Function
+
+
+Sub healthCheck()
+'Delete the exsiting intermediate file and Health Check***
+
+'Set filesys = CreateObject("Scripting.FileSystemObject")
+
+'    If filesys.FileExists(PathI) Then
+'        filesys.DeleteFile PathI
+'    End If
+
+'    If filesys.FileExists(PathH) Then
+'    	filesys.DeleteFile PathI	
+'    End If
+DeleteFile(PathI)
+DeleteFile(PathH) 
+    
+'Read The servermanger output file
+file = PathS       ' Read Server Manager Outpu File 
+Text = Null
+title = "Health Check"
+' Create FileSystemObject object to access the file system.
+Set fso = CreateObject("Scripting.FileSystemObject")
+
+' Check whether file exists.
+
+    If fso.FileExists(file) Then
+ '       LogStream.WriteLine "Opened Server Manager Output file"
+        Set txtStream = fso.OpenTextFile(file) ' Open text file.
+        	Do While Not (txtStream.atEndOfStream)
+            	Text = Text & txtStream.ReadLine & vbCrLf
+        	Loop
+    Else                  ' Terminate
+			
+			ErrorTextArea.value = ErrorTextArea.value + "The servermanager output file not found Exiting Code 1 "+ vbNewLine 
+	        wscript.Quit 1    ' Terminate with error code.
+
+    End If
+
+MakeHTMLCode Text, 0      ' Convert text to HTML (only < and >).
+PreHTML Text, title    ' Pre Process the text files
+Format()    	
+Status1 = WebSiteCheck(webServer1)
+Status2 = WebSiteCheck(webServer2)
+Status3 = WebSiteCheck(webServer3)
+'Status=  "Check IIS web server 1: <u>" + WebServer1 + "</u>"+ Status1 + "<br>" + "Check IIS web server 2: <u>" + WebServer2 + "</u>"+ Status2 + "<br>"  + "Check IIS web server 3: <u>"+ WebServer3 + "</u>" + Status3 
+Status=  "Web Server 1: " + Status1 + vbNewLine + "Web server 2: " + Status2 + vbNewLine  + "Web server 3: "+ vbNewLine + Status3 
+ErrorTextArea.value = ErrorTextArea.value + Status + vbNewLine
+
+'will try to put total number of shutdown comps
+'MailBody = "<br>Number of Shutdown Components in the Health Check: " & Count
+
+If (ErrFlag = 0) then 
+	ErrorTextArea.value = ErrorTextArea.value + MSubject
+Else
+	ErrorTextArea.value = ErrorTextArea.value + ErrSubject
+End if 
+
+'Open the HTML File In default Application
+
+	Dim wshShell
+	Set wshShell = CreateObject("WScript.Shell")
+	wshShell.Run PathH
+
+fsoLOg = Null
+'LogStream.Close
+TimeStamp = Null
+wshShell = Null
+
+End Sub
+
+
+'This segment will read data from intermediate file and create a new file with proper formatting
+
+Sub Format()
+
+	Dim counter
+	counter = 0
+	file2 = PathI
+	file3 = PathH
+	Set fso1 = CreateObject("Scripting.FileSystemObject")
+	Set fso2 = CreateObject("Scripting.FileSystemObject")
+	Set txtStream2 = fso1.OpenTextFile(file2)
+	Set txtStream3 = fso2.OpenTextFile(file3, 8, True)
+
+    Do While Not (txtStream2.atEndOfStream)     
+    	Text2 = txtStream2.ReadLine
+	    Text2 = Replace(Text2, "Shutdown", "<font color=red><b>Shutdown</b></font>") 'highlight shutdown
+	    Text2 = Replace(Text2, "Offline", "<font color=red><b>Offline</b></font>")
+	    Text2 = Replace(Text2, "offline", "<font color=red><b>offline</b></font>")
+	    Text2 = Replace(Text2, "Shutting Down", "<font color=red><b>Shutting Down</b></font>")
+	    Text2 = Replace(Text2, "Starting Up", "<font color=red><b>Starting Up</b></font>")
+	    Text2 = Replace(Text2, "Unavailable", "<font color=red><b>Unavailable</b></font>")
+	    Text2 = Replace(Text2, "Connect Failed", "<font color=red><b>Connect Failed</b></font>")
+	    Text2 = Replace(Text2, "Handshake failed", "<font color=red><b>Handshake failed</b></font>")
+	    Text2 = Replace(Text2, "Login failed", "<font color=red><b>Login Failed</b></font>")
+	    Text2 = Replace(Text2, "Disconnected", "<font color=red><b>Disconnected</b></font>")
+	    Text2 = Replace(Text2,"Not available","<font color=red><b>Not available</b></font>")
+	    txtStream3.WriteLine Text2
+    Loop
+	file2 = Null
+	fso1 = Null
+	txtStream2.Close
+	txtStream3.Close
+End Sub
+
+
+'**********************************************************Badre End**********************************************************************
+'to create and intermdediate HTML file
+Sub PreHTML(txt, title)
+	file1 = PathI
+	Set fso = CreateObject("Scripting.FileSystemObject")
+	Set txtStream1 = fso.OpenTextFile(file1, 8, True)
+	'Set txtStream1 = fso.OpenTextFile(file1)
+	txtStream1.WriteLine (doc1)
+	write = "<html><head><title>" & Title & "</title></head>"
+	txtStream1.WriteLine(write)
+	write = "<body bgcolor='#33FFCC'><pre>"
+	txtStream1.WriteLine(write)
+	txtStream1.WriteLine (txt)
+	write = "</pre></body></html>"
+	txtStream1.WriteLine(write)
+	txtStream1.Close
+End Sub
+
+
+'This function will create the HTML code
+Sub MakeHTMLCode(txt, flag)
+    Dim oReg
+    Set oReg = New RegExp        ' Create regular expression.
+    oReg.Global = True           ' All matches
+    oReg.IgnoreCase = True       ' Make case insensitive.
+    ' Replace all < with &lt;.
+    oReg.Pattern = "<"           ' Set pattern.
+    txt = oReg.Replace(txt, "&lt;")
+    ' Replace all ">" with "&gt;"
+    oReg.Pattern = ">"           ' Set pattern.
+    txt = oReg.Replace(txt, "&gt;")
+
+    If flag > 0 Then             ' Replace vbCrLf?
+        ' Now we're ready to replace all vbCrLf with <br>.
+        oReg.Pattern = vbCrLf       ' Set pattern.
+        oReg.Global = True          ' All matches
+        txt = oReg.Replace(txt, "<br>")
+    End If
+
+    If flag > 1 Then             ' Replace blanks?
+        ' Now we're ready to replace all blanks with &nbsp;.
+        oReg.Pattern = " "          ' Set pattern.
+        oReg.Global = True          ' All matches
+        txt = oReg.Replace(txt, "&nbsp;")
+    End If
+End Sub
+
+
+'''********************'Check Website****************************'
+Function WebSiteCheck(website)
+	'Set WshShell1 = WScript.CreateObject("WScript.Shell")
+	Set WshShell1 = CreateObject("WScript.Shell")
+	Set WinHttpReq = CreateObject("WinHttp.WinHttpRequest.5.1")
+	Name = "oceania\AUKYCSVC"
+	pass = "VESpAh2b"
+	'  // HttpRequest SetCredentials flags
+	HTTPREQUEST_SETCREDENTIALS_FOR_SERVER = 0
+	WinHttpReq.Open "GET", website, False
+	WinHttpReq.SetCredentials Name, pass, HTTPREQUEST_SETCREDENTIALS_FOR_SERVER
+	
+		On Error Resume Next 'Error handling
+		  WinHttpReq.send
+		'If Err.Number <> 0 Then    'error handling:
+		If Err.Number = 0 Then
+			intStatus = WinHttpReq.Status
+				  If intStatus = 200 Then
+		       		WebSiteCheck = "The website is up and running"
+		    	  Else
+		       	    WebSiteCheck = "The Web site is down"
+		    		down= "Siebel Health: "& website &" is down error"
+				    ErrFlag = 1
+				  End If
+		Else
+		
+			Text = "Error Number" & Err.Number & "<br> Source: " & Err.Source & "<br> Desc: " & Err.Description
+		    WebSiteCheck = Text
+			Msg = "Siebel Health:" & website &" is down error description " & Text    
+			ErrFlag = 1	
+			Err.Clear
+		End If
+	WshShell1 = null
+	Msg = null
+	Text = null
+End Function
+
+Sub generateServerMgrOutput
+	DeleteFile(PathS)
+	Dim wshShell
+	Set wshShell = CreateObject("WScript.Shell")
+	wshShell.Run PathSMB
+	ErrorTextArea.value = ErrorTextArea.value + "Server Manager File Genrated"
+
+End Sub	
+
+
+</SCRIPT>
+
+
+<BODY>
+<p>
+<B>Environment&nbsp;</B>
+<SPAN id=EnvDropDown></SPAN>
+&nbsp;&nbsp;
+<B>Actions&nbsp;</B>
+<select size="1" name="actionDropDown" onChange="changeAction()" disabled="true">
+	<option value="Services">Service Control</option>
+	<option value="SHMDMP">DMP</option>
+	<option value="CheckDisk">Check Disk Usage</option>
+	<option value="HealthCheck">Health Check</option>
+	
+</select>
+</p>
+<p><SPAN id=ControlArea></SPAN><hr/></p>
+<SPAN id=DataArea></SPAN>
+</br>
+</br>
+<textarea name="ErrorTextArea" rows="6" cols="100"></textarea>
+<SPAN id=editConfig></SPAN>
+</BODY>
+</HTML>
